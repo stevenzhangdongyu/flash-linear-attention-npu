@@ -139,7 +139,7 @@ public:
 
         constexpr uint32_t G_UB_TENSOR_OFFSET_PONG = G_UB_TENSOR_OFFSET_PING;
         constexpr uint32_t G_HALF_UB_TENSOR_OFFSET_PONG = G_UB_TENSOR_OFFSET_PONG + G_FLOAT_UB_TENSOR_SIZE;
-        constexpr uint32_t OUT_UB_TENSOR_OFFSET_PONG = OUT_UB_TENSOR_OFFSET_PING;
+        constexpr uint32_t OUT_UB_TENSOR_OFFSET_PONG = OUT_HALF_UB_TENSOR_OFFSET_PING + HALF_UB_TENSOR_SIZE;
         constexpr uint32_t OUT_HALF_UB_TENSOR_OFFSET_PONG = OUT_UB_TENSOR_OFFSET_PONG + FLOAT_UB_TENSOR_SIZE;
 
         gUbTensorPong = resource.ubBuf.template GetBufferByByte<float>(G_UB_TENSOR_OFFSET_PONG);

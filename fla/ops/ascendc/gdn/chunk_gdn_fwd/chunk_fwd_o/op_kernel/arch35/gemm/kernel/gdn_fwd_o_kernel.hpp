@@ -419,16 +419,16 @@ public:
             bool needRun = false;
             uint32_t vec1pingpongFlag = 0;
             uint32_t vec2pingpongFlag = 0;
-            bool vec2Mte3Pending = false;
-            uint32_t vec2Mte3PendingEvent = 0;
+            bool vec2Mte3Pending[PING_PONG_STAGES] = {false, false};
+            uint32_t vec2Mte3PendingEvent[PING_PONG_STAGES] = {0, 0};
 
             while (vecBlockScheduler.isRunning) {
                 vecBlockScheduler.InitTask();
 
                 if (vecBlockScheduler.isRunning && coreIdx < coreNum * subBlockNum) {
-                    if (vec2Mte3Pending) {
-                        AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent);
-                        vec2Mte3Pending = false;
+                    if (vec2Mte3Pending[vec1pingpongFlag]) {
+                        AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent[vec1pingpongFlag]);
+                        vec2Mte3Pending[vec1pingpongFlag] = false;
                     }
                     uint32_t vec1Stage = vecBlockScheduler.GetVec1Stage();
                     Arch::CrossCoreWaitFlag(vecBlockScheduler.cube1Done[vec1Stage]);
@@ -464,7 +464,7 @@ public:
                         gmO[vec2OffsetO],
                         gmG[vec2OffsetG], ubVWork, ubHWork,
                         scale, vec2Offsets.blockTokens, kHeadDim, vec2Offsets.vBlockDim, vHeadDim, vec2pingpongFlag,
-                        vec2Mte3Pending, vec2Mte3PendingEvent,
+                        vec2Mte3Pending[vec2pingpongFlag], vec2Mte3PendingEvent[vec2pingpongFlag],
                         vec2Offsets.batchIdx, vec2Offsets.headIdx, vec2Offsets.chunkIdx
                     );
                     Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[vec2Stage]);
@@ -472,8 +472,10 @@ public:
                 }
                 needRun = true;
             }
-            if (vec2Mte3Pending) {
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent);
+            for (uint32_t pendingIdx = 0; pendingIdx < PING_PONG_STAGES; ++pendingIdx) {
+                if (vec2Mte3Pending[pendingIdx]) {
+                    AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent[pendingIdx]);
+                }
             }
         }
     }
