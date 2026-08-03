@@ -188,9 +188,7 @@ public:
         uint32_t vBlockDim,
         uint32_t vHeadDim,
         uint32_t &pingpongFlag,
-        bool &mte3Pending,
-        uint32_t &mte3PendingEvent
-        , uint32_t batchIdx, uint32_t headIdx, uint32_t chunkIdx
+        uint32_t batchIdx, uint32_t headIdx, uint32_t chunkIdx
         )
     {
         uint32_t mActual = chunkSize;
@@ -296,9 +294,6 @@ public:
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                 CopyOutputToGm(hOutputThisSubBlock, outUbFPTensor, mActualThisSubBlock, nActual, outputStride);
-                AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pingpongFlag);
-                mte3Pending = true;
-                mte3PendingEvent = EVENT_ID0 + pingpongFlag;
             }
             else
             {
@@ -306,9 +301,6 @@ public:
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                 CopyOutputToGm(hOutputThisSubBlock, outUbBFTensor, mActualThisSubBlock, nActual, outputStride);
-                AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pingpongFlag);
-                mte3Pending = true;
-                mte3PendingEvent = EVENT_ID0 + pingpongFlag;
             }
         }
         else
@@ -415,20 +407,12 @@ public:
                 }
                 AscendC::PipeBarrier<PIPE_V>();
 
-                if (mte3Pending) {
-                    AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(mte3PendingEvent);
-                    mte3Pending = false;
-                }
-
                 if(std::is_same<HElementOutput, half>::value)
                 {
                     AscendC::Cast(outUbFPTensor, outUbTensor, AscendC::RoundMode::CAST_NONE, mActualThisStage * nActual);
                     AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                     AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                     CopyOutputToGm(hOutputThisSubBlock, outUbFPTensor, mActualThisStage, nActual, outputStride);
-                    AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pingpongFlag);
-                    mte3Pending = true;
-                    mte3PendingEvent = EVENT_ID0 + pingpongFlag;
                 }
                 else
                 {
@@ -436,9 +420,6 @@ public:
                     AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                     AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0 + pingpongFlag);
                     CopyOutputToGm(hOutputThisSubBlock, outUbBFTensor, mActualThisStage, nActual, outputStride);
-                    AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pingpongFlag);
-                    mte3Pending = true;
-                    mte3PendingEvent = EVENT_ID0 + pingpongFlag;
                 }
             }
         }

@@ -408,17 +408,11 @@ public:
             bool needRun = false;
             uint32_t vec1pingpongFlag = 0;
             uint32_t vec2pingpongFlag = 0;
-            bool vec2Mte3Pending = false;
-            uint32_t vec2Mte3PendingEvent = 0;
 
             while (vecBlockScheduler.isRunning) {
                 vecBlockScheduler.InitTask();
 
                 if (vecBlockScheduler.isRunning && coreIdx < coreNum * subBlockNum) {
-                    if (vec2Mte3Pending) {
-                        AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent);
-                        vec2Mte3Pending = false;
-                    }
                     uint32_t vec1Stage = vecBlockScheduler.GetVec1Stage();
                     Arch::CrossCoreWaitFlag(vecBlockScheduler.cube1Done[vec1Stage]);
                     GDNFwdOOffsets& vec1Offsets = vecBlockScheduler.GetVec1Offsets();
@@ -453,15 +447,11 @@ public:
                         gmO[vec2OffsetO],
                         gmG[vec2OffsetG], ubVWork, ubHWork,
                         scale, vec2Offsets.blockTokens, kHeadDim, vec2Offsets.vBlockDim, vHeadDim, vec2pingpongFlag,
-                        vec2Mte3Pending, vec2Mte3PendingEvent,
                         vec2Offsets.batchIdx, vec2Offsets.headIdx, vec2Offsets.chunkIdx
                     );
                     vec2pingpongFlag = 1 - vec2pingpongFlag;
                 }
                 needRun = true;
-            }
-            if (vec2Mte3Pending) {
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(vec2Mte3PendingEvent);
             }
         }
     }
