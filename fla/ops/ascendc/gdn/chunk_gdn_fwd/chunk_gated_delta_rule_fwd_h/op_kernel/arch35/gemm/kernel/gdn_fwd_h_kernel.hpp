@@ -9,6 +9,11 @@
 
 #define CATLASS_ARCH 3510
 
+// Bandwidth-only benchmark: keep memory movement, remove arithmetic and cross-core sync.
+#ifndef GDN_FWDH_BW_ONLY
+#define GDN_FWDH_BW_ONLY 1
+#endif
+
 #include "catlass/arch/arch.hpp"
 #include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
@@ -233,7 +238,9 @@ public:
             auto vworkLayout = tla::MakeLayout<ElementV, LayoutV>(coreNum * chunkSize * PING_PONG_STAGES, vHeadDim);
             auto hworkLayout = tla::MakeLayout<ElementHWork, LayoutH>(kHeadDim, vHeadDim);
 
+#if !GDN_FWDH_BW_ONLY
             AscendC::SyncAll<false>();
+#endif
             uint32_t currStage = 0; // 0: C1, 1: C2
             blockMmadWH.preSetFlags();
             while (cubeBlockScheduler.isRunning) {
@@ -259,7 +266,9 @@ public:
                         auto tensorBlockW = GetTile(tensorW, tla::MakeCoord(0, 0), tla::MakeShape(cube1Shape.m(), cube1Shape.k()));
                         auto tensorBlockH = GetTile(tensorH, tla::MakeCoord(0, 0), tla::MakeShape(cube1Shape.k(), cube1Shape.n()));
                         blockMmadWH(tensorBlockW, tensorBlockH, tensorV, cube1Shape, cubeBlockScheduler.vec2Done[i]);
+#if !GDN_FWDH_BW_ONLY
                         Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(cubeBlockScheduler.cube1Done);
+#endif
                     }
                 } else {
                     /* C2: h[i+1] = k.T @ v_work */
@@ -284,16 +293,22 @@ public:
                             auto tensorBlockVwork = GetTile(tensorVwork, tla::MakeCoord(0, 0), tla::MakeShape(cube2Shape.k(), cube2Shape.n()));
                             blockMmadKV(tensorBlockK, tensorBlockVwork, tensorHwork, cube2Shape, cubeBlockScheduler.vec1Done);
                         } else {
+#if !GDN_FWDH_BW_ONLY
                             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec1Done);
+#endif
                         }
+#if !GDN_FWDH_BW_ONLY
                         Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(cubeBlockScheduler.cube2Done);
+#endif
                     }
                 }
                 currStage ^= 0x01;
             }
             blockMmadKV.finalWaitFlags();
+#if !GDN_FWDH_BW_ONLY
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[0]);
             Arch::CrossCoreWaitFlag(cubeBlockScheduler.vec2Done[1]);
+#endif
 
         }
 
@@ -336,10 +351,19 @@ public:
                         AscendC::DataCopy(stateUbTensor, gmInitialState[initialStateOffset], stateBlockSize);
                         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(event_id);
                         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(event_id);
+#if !GDN_FWDH_BW_ONLY
                         AscendC::Cast(hUbTensor, stateUbTensor, AscendC::RoundMode::CAST_RINT, stateBlockSize);
                         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(event_id);
                         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(event_id);
+#else
+                        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(event_id);
+                        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(event_id);
+                        auto stateAsH = stateUbTensor.template ReinterpretCast<ElementH>();
+                        AscendC::DataCopy(gmH[hOffset], stateAsH, stateBlockSize);
+#endif
+#if !GDN_FWDH_BW_ONLY
                         AscendC::DataCopy(gmH[hOffset], hUbTensor, stateBlockSize);
+#endif
                     } else {
                         AscendC::DataCopy(stateUbTensor, gmInitialState[initialStateOffset], stateBlockSize);
                         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(event_id);
@@ -356,14 +380,17 @@ public:
 
             }
 
+#if !GDN_FWDH_BW_ONLY
             AscendC::SyncAll<false>();
 
             Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[0]);
             Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[1]);
+#endif
             EpilogueGDNFwdHVnew epilogueGDNFwdHVnew(resource);
             EpilogueGDNFwdHUpdate epilogueGDNFwdHUpdate(resource);
             uint32_t pongBaseEvent = 4;
 
+#if !GDN_FWDH_BW_ONLY
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pongBaseEvent);
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1); // preset u
@@ -372,6 +399,7 @@ public:
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pongBaseEvent);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3); // preset g
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3 + pongBaseEvent);
+#endif
 
             uint32_t currStage = 0; // 0: V1, 1: V2
             while (vecBlockScheduler.isRunning) {
@@ -417,14 +445,19 @@ public:
                                 vec2Offsets.isFinalState, (i == 0)
                             );
                         } else {
+#if !GDN_FWDH_BW_ONLY
                             Arch::CrossCoreWaitFlag(vecBlockScheduler.cube2Done);
+#endif
                         }
+#if !GDN_FWDH_BW_ONLY
                         Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(vecBlockScheduler.vec2Done[i]);
+#endif
                     }
                 }
                 currStage ^= 0x01;
             }
 
+#if !GDN_FWDH_BW_ONLY
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0 + pongBaseEvent);
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1); // preset u
@@ -433,6 +466,7 @@ public:
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pongBaseEvent);
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3); // preset g
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3 + pongBaseEvent);
+#endif
 
         }
     }

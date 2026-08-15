@@ -21,6 +21,10 @@
 #include "tla/layout.hpp"
 #include "tla/tensor.hpp"
 
+#ifndef GDN_FWDH_BW_ONLY
+#define GDN_FWDH_BW_ONLY 0
+#endif
+
 namespace Catlass::Gemm {
 
 template <class ArchTag_, bool ENABLE_UNIT_FLAG_ = false, bool USE_HF32_MODE_ = false, uint32_t L0C_STAGES_ = 1,
@@ -270,6 +274,7 @@ public:
             for (uint32_t i = 0; i < L1B_STAGES; i++) {
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[i]);
             }
+#if !GDN_FWDH_BW_ONLY
             for (uint32_t i = 0; i < L0A_STAGES; i++) {
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[i]);
             }
@@ -281,9 +286,12 @@ public:
                     AscendC::SetFlag<AscendC::HardEvent::FIX_M>(l0CEventList[i]);
                 }
             }
+#endif
             if constexpr (HAS_BIAS) {
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(L1A_STAGES + L1B_STAGES);
+#if !GDN_FWDH_BW_ONLY
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0A_STAGES + L0B_STAGES);
+#endif
             }
 
             if constexpr (ENABLE_L1_RESIDENT) {
@@ -307,6 +315,7 @@ public:
             for (uint32_t i = 0; i < L1B_STAGES; i++) {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[i]);
             }
+#if !GDN_FWDH_BW_ONLY
             for (uint32_t i = 0; i < L0A_STAGES; i++) {
                 AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[i]);
             }
@@ -318,9 +327,12 @@ public:
                     AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(l0CEventList[i]);
                 }
             }
+#endif
             if constexpr (HAS_BIAS) {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(L1A_STAGES + L1B_STAGES);
+#if !GDN_FWDH_BW_ONLY
                 AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0A_STAGES + L0B_STAGES);
+#endif
             }
         }
     }
@@ -390,7 +402,9 @@ public:
         } else {
             copyGmToL1A(tensorL1A, tensorTileA);
         }
+#if !GDN_FWDH_BW_ONLY
         Arch::CrossCoreWaitFlag(vecDone);
+#endif
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(l1AEventList[l1AListId]);
 
         // load first matrix B tile from GM to L1
@@ -411,6 +425,14 @@ public:
             copyGmToL1B(tensorL1B, tensorTileB);
         }
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(l1BEventList[l1BListId]);
+
+#if GDN_FWDH_BW_ONLY
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1AEventList[l1AListId]);
+        AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListId]);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1BEventList[l1BListId]);
+        AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[l1BListId]);
+        return;
+#endif
 
         if constexpr (HAS_BIAS && !std::is_same_v<TensorBias, EmptyClass>) {
             using CopyGmToL1Bias = typename TileCopy::template CopyGmToL1Bias<TensorBias>;

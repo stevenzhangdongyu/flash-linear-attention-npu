@@ -16,6 +16,10 @@
 #include "catlass/matrix_coord.hpp"
 #include "catlass/epilogue/tile/tile_copy.hpp"
 
+#ifndef GDN_FWDH_BW_ONLY
+#define GDN_FWDH_BW_ONLY 0
+#endif
+
 namespace Catlass::Epilogue::Block {
 
 template <
@@ -81,6 +85,7 @@ public:
     CATLASS_DEVICE
     ~BlockEpilogue() {}
 
+#if !GDN_FWDH_BW_ONLY
     __simd_vf__ inline void Vec2PreVF(
         __ubuf__  float* dstAddr, __ubuf__ HElementOutput* srcAddr, float muls,
         uint32_t count, uint32_t oneRepeatSize, uint16_t repeatOuterTimes, uint16_t repeatInnerTimes
@@ -161,6 +166,7 @@ public:
             }
         }
     }
+#endif
 
     CATLASS_DEVICE
     void operator()(
@@ -205,6 +211,34 @@ public:
         AscendC::LocalTensor<HElementOutput> hUbTensor = isPing ? hUbTensor_ping : hUbTensor_pong;
         AscendC::LocalTensor<float> glastUbTensor = isPing ? glastUbTensor_ping : glastUbTensor_pong;
 
+#if GDN_FWDH_BW_ONLY
+        AscendC::DataCopy(hUbTensor, hInputThisSubBlock, mActualThisSubBlock * nActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID2 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID2 + pingpongFlag);
+
+        AscendC::DataCopy(hUpdateUbTensor, hUpdateInputThisSubBlock, mActualThisSubBlock * nActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID3 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID3 + pingpongFlag);
+
+        AscendC::DataCopy(hOutputThisSubBlock, hUbTensor, mActualThisSubBlock * nActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pingpongFlag);
+
+        if (isFinalState) {
+            if constexpr(std::is_same<FinalStateElement, HElementOutput>::value) {
+                AscendC::DataCopy(finalStateThisSubBlock, hUbTensor, mActualThisSubBlock * nActual);
+                AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pingpongFlag);
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pingpongFlag);
+            } else if constexpr(std::is_same<FinalStateElement, float>::value) {
+                AscendC::DataCopy(finalStateThisSubBlock, hUpdateUbTensor, mActualThisSubBlock * nActual);
+                AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID3 + pingpongFlag);
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID3 + pingpongFlag);
+            }
+        }
+        return;
+#endif
+
+#if !GDN_FWDH_BW_ONLY
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID2 + pingpongFlag);
         AscendC::DataCopy(hUbTensor, hInputThisSubBlock, mActualThisSubBlock * nActual);
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2 + pingpongFlag);
@@ -269,6 +303,7 @@ public:
         }
 
 
+#endif
     }
 
 private:

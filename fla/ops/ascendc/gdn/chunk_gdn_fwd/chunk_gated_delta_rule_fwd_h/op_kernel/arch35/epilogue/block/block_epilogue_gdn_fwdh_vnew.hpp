@@ -16,7 +16,9 @@
 #include "catlass/matrix_coord.hpp"
 #include "catlass/epilogue/tile/tile_copy.hpp"
 
-
+#ifndef GDN_FWDH_BW_ONLY
+#define GDN_FWDH_BW_ONLY 0
+#endif
 
 namespace Catlass::Epilogue::Block {
 
@@ -92,6 +94,7 @@ public:
     CATLASS_DEVICE
     ~BlockEpilogue() {}
 
+#if !GDN_FWDH_BW_ONLY
     __simd_vf__ inline void Vec1CalcVF(
         __ubuf__ VElementOutput* vNewAddr, __ubuf__ VElementOutput* vOutAddr,
         __ubuf__  float* vSrcAddr, __ubuf__ float* uSrcAddr, __ubuf__ float* gSrcAddr,
@@ -145,7 +148,9 @@ public:
         }
 
     }
+#endif
 
+#if !GDN_FWDH_BW_ONLY
     __simd_vf__ inline void Vec1PostVF(
         __ubuf__ VElementOutput* vOutAddr, __ubuf__  float* vSrcAddr, __ubuf__ float* uSrcAddr,
         uint32_t mActualThisSubBlock, uint32_t nvActual
@@ -191,6 +196,7 @@ public:
             }
         }
     }
+#endif
 
     CATLASS_DEVICE
     void operator()(
@@ -264,7 +270,38 @@ public:
         AscendC::LocalTensor<VElementOutput> vNewOutputUbTensor = isPing ? vNewOutputUbTensor_ping : vNewOutputUbTensor_pong;
         AscendC::LocalTensor<VElementOutput> vNewDecayUbTensor = isPing ? vNewDecayUbTensor_ping : vNewDecayUbTensor_pong;
 
+#if GDN_FWDH_BW_ONLY
+        AscendC::DataCopy(uUbTensor, uInputThisSubBlock, mActualThisSubBlock * nvActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID1 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID1 + pingpongFlag);
 
+        if constexpr(std::is_same<GElementInput, float>::value) {
+            AscendC::DataCopyParams gUbParams{1, (uint16_t)(mActual * sizeof(float)), 0, 0};
+            AscendC::DataCopyPadParams gUbPadParams{false, 0, 0, 0};
+            AscendC::DataCopyPad(gUbTensor, gInputThisSubBlock, gUbParams, gUbPadParams);
+        } else {
+            AscendC::DataCopyParams gUbParams{1, (uint16_t)(mActual * sizeof(half)), 0, 0};
+            AscendC::DataCopyPadParams gUbPadParams{false, 0, 0, 0};
+            AscendC::DataCopyPad(gInputUbTensor, gInputThisSubBlock, gUbParams, gUbPadParams);
+        }
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID3 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID3 + pingpongFlag);
+
+        AscendC::DataCopy(wsUbTensor, wsInputThisSubBlock, mActualThisSubBlock * nvActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID1 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(EVENT_ID1 + pingpongFlag);
+
+        auto bwOutputTensor = calcUbTensor.template ReinterpretCast<VElementOutput>();
+        AscendC::DataCopy(vnewdecayOutputThisSubBlock, bwOutputTensor, mActualThisSubBlock * nvActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag);
+        AscendC::DataCopy(vnewOutputThisSubBlock, bwOutputTensor, mActualThisSubBlock * nvActual);
+        AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag);
+        return;
+#endif
+
+#if !GDN_FWDH_BW_ONLY
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag); // wait v_c2
         AscendC::DataCopy(uUbTensor, uInputThisSubBlock, mActualThisSubBlock * nvActual); // mte2 u
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID1 + pingpongFlag); // set u
@@ -333,6 +370,7 @@ public:
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID1 + pingpongFlag);
         AscendC::DataCopy(vnewOutputThisSubBlock, vNewOutputUbTensor, mActualThisSubBlock * nvActual);
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID1 + pingpongFlag);
+#endif
 
     }
 
