@@ -92,7 +92,7 @@ public:
     using MaskType = Gemm::GemmType<bool, layout::RowMajor>;
 
     static constexpr bool ENABLE_REUSE_Q_L1_FOR_QH = true;
-    static constexpr bool ENABLE_VEC1_UB_TO_L1_FOR_CUBE3 = false;
+    static constexpr bool ENABLE_VEC1_UB_TO_L1_FOR_CUBE3 = true;
     static constexpr uint32_t VEC1_L1_STAGES = PING_PONG_STAGES;
     static constexpr uint32_t VEC1_L1_TILE_SIZE = 128 * 128 * sizeof(INPUT_TYPE);
 
